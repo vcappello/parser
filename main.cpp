@@ -424,7 +424,6 @@ void test_complex()
     stringstream ss;
     ss << "(1+2)*3";
 
-    cout << endl << "good=" << ss.good() << " eof=" << ss.eof() << endl;
     //cout << r_expr.to_string() << endl;
 
     auto t = r_expr.match(ss);
@@ -434,12 +433,7 @@ void test_complex()
     cout << "Match token: ";
     if (t)
     {     
-        cout << endl << "good=" << ss.good() << " eof=" << ss.eof() << endl;
         test_out(t.get(), ss);
-
-        cout << endl << "good=" << ss.good() << " eof=" << ss.eof() << endl;
-        cout << "*** " << ss.str() << endl;
-
         cout << "Passed" << endl;
     }
     else
