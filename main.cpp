@@ -6,6 +6,8 @@
 #include <optional>
 #include <vector>
 #include <limits>
+#include <stack>
+#include <functional>
 
 using namespace std;
 
@@ -23,6 +25,16 @@ namespace bnf
         static std::unique_ptr<token> null_token()
         {
             return std::unique_ptr<token>();
+        }
+
+        void for_each(std::function<void(token *)> fn)
+        {
+            fn(this);
+
+            for (auto &c : children)
+            {
+                c->for_each(fn);
+            }
         }
     };
 
@@ -363,8 +375,8 @@ void test_out(bnf::token *t, istream &is)
             streamsize len = t->end - t->start;
             string buf(len, '\0');
             is.seekg(t->start);
-            is.read(&buf[0], len);        
-            cout << "(" << len << ")" << " '" << buf << "'"; 
+            is.read(&buf[0], len);
+            cout << "(" << len << ")" << " '" << buf << "'";
         }
         cout << endl;
     }
@@ -373,6 +385,10 @@ void test_out(bnf::token *t, istream &is)
     {
         test_out(tc.get(), is);
     }
+}
+
+void shunting_yard_algorithm(bnf::token *t)
+{
 }
 
 void test_complex()
@@ -424,17 +440,32 @@ void test_complex()
     stringstream ss;
     ss << "(1+2)*3";
 
-    //cout << r_expr.to_string() << endl;
+    // cout << r_expr.to_string() << endl;
 
     auto t = r_expr.match(ss);
 
     ss.clear();
-    
+
     cout << "Match token: ";
     if (t)
-    {     
-        test_out(t.get(), ss);
+    {
         cout << "Passed" << endl;
+        t->for_each([&](bnf::token *t)
+            { 
+                if (auto r = dynamic_cast<bnf::rule *>(t->rule))
+                {
+                    cout << r->name << " " << t->start << ", " << t->end;
+                    if (t->end != -1)
+                    {
+                        streamsize len = t->end - t->start;
+                        string buf(len, '\0');
+                        ss.seekg(t->start);
+                        ss.read(&buf[0], len);        
+                        cout << "(" << len << ")" << " '" << buf << "'"; 
+                    }
+                    cout << endl;
+                } 
+            });
     }
     else
     {
