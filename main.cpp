@@ -1,412 +1,39 @@
-#include <iostream>
-#include <string>
-#include <sstream>
-#include <vector>
-#include <memory>
-#include <optional>
-#include <vector>
-#include <limits>
 #include <stack>
 #include <queue>
-#include <functional>
+#include "bnf.h"
 
-using namespace std;
-
-namespace bnf
-{
-    struct rule_base;
-
-    struct token
-    {
-        streampos start;
-        streampos end;
-        rule_base *rule;
-        std::vector<std::unique_ptr<token>> children;
-
-        static std::unique_ptr<token> null_token()
-        {
-            return std::unique_ptr<token>();
-        }
-
-        void for_each(std::function<void(token *)> fn)
-        {
-            fn(this);
-
-            for (auto &c : children)
-            {
-                c->for_each(fn);
-            }
-        }
-    };
-
-    struct rule_base
-    {
-        virtual std::unique_ptr<token> match(istream &is) = 0;
-        virtual string to_string() = 0;
-
-        virtual std::unique_ptr<token> match_begin(istream &is)
-        {
-            auto t = std::make_unique<token>();
-            t->start = is.tellg();
-            t->rule = this;
-
-            return t;
-        }
-
-        virtual void match_fail(istream &is, token *t)
-        {
-            // cout << rule->to_string() << " FAIL" << endl;
-
-            is.seekg(t->start);
-        }
-
-        virtual void match_passed(istream &is, token *t)
-        {
-            // cout << rule->to_string() << " Ok" << endl;
-
-            t->end = is.tellg();
-            // st.parent->children.emplace_back(t);
-        }
-    };
-
-    struct terminal_rule : public rule_base
-    {
-    };
-
-    struct rule : public rule_base
-    {
-        string name;
-        rule_base *child;
-
-        rule(const string &in_name, rule_base *in_child) : name(in_name), child(in_child) {}
-        rule(const string &in_name) : name(in_name), child(nullptr) {}
-
-        std::unique_ptr<token> match(istream &is) override
-        {
-            auto t = match_begin(is);
-            if (auto tc = child->match(is))
-            {
-                t->children.emplace_back(std::move(tc));
-                match_passed(is, t.get());
-                return t;
-            }
-            match_fail(is, t.get());
-            return token::null_token();
-        }
-
-        string to_string() override
-        {
-            return name + " := " + child->to_string() + "\n";
-        }
-    };
-
-    struct rule_ref : public rule_base
-    {
-        string name;
-        rule_base *child;
-
-        rule_ref() : child(nullptr) {}
-        rule_ref(const rule &rhs) : name(rhs.name), child(rhs.child) {}
-
-        std::unique_ptr<token> match(istream &is) override
-        {
-            auto t = match_begin(is);
-            if (auto tc = child->match(is))
-            {
-                t->children.emplace_back(std::move(tc));
-                match_passed(is, t.get());
-                return t;
-            }
-            match_fail(is, t.get());
-            return token::null_token();
-        }
-
-        string to_string() override
-        {
-            return name;
-        }
-
-        rule_ref &operator=(const rule &rhs)
-        {
-            this->name = rhs.name;
-            this->child = rhs.child;
-            return *this;
-        }
-    };
-
-    struct literal : public terminal_rule
-    {
-        string text;
-
-        literal(const string &in_text) : text(in_text) {}
-
-        std::unique_ptr<token> match(istream &is) override
-        {
-            if (is.eof())
-                return token::null_token();
-            auto t = match_begin(is);
-            string buf(text.size(), '\0');
-            is.read(&buf[0], text.size());
-            if (!is.good() || buf != text)
-            {
-                is.clear();
-                match_fail(is, t.get());
-                return token::null_token();
-            }
-            match_passed(is, t.get());
-            return t;
-        }
-
-        string to_string() override
-        {
-            string ret;
-            ret = "\"" + text + "\"";
-            return ret;
-        }
-    };
-
-    struct char_range : public terminal_rule
-    {
-        char low;
-        char high;
-
-        char_range(const char in_low, const char in_high) : low(in_low), high(in_high) {}
-
-        std::unique_ptr<token> match(istream &is) override
-        {
-            if (is.eof())
-                return token::null_token();
-            auto t = match_begin(is);
-            char c;
-            is.get(c);
-            if (!is.good() || c < low || c > high)
-            {
-                is.clear();
-                match_fail(is, t.get());
-                return token::null_token();
-            }
-            match_passed(is, t.get());
-            return t;
-        }
-
-        string to_string() override
-        {
-            return string("[") + low + "-" + high + "]";
-        }
-    };
-
-    struct char_set : public terminal_rule
-    {
-        string cset;
-
-        char_set(const string &in_cset) : cset(in_cset) {}
-
-        std::unique_ptr<token> match(istream &is) override
-        {
-            if (is.eof())
-                return token::null_token();
-            auto t = match_begin(is);
-            char c;
-            is.get(c);
-            if (!is.good() || cset.find(c) == string::npos)
-            {
-                is.clear();
-                match_fail(is, t.get());
-                return token::null_token();
-            }
-            match_passed(is, t.get());
-            return t;
-        }
-
-        string to_string() override
-        {
-            return string("[") + cset + "]";
-        }
-    };
-
-    struct choice : public rule_base
-    {
-        vector<rule_base *> children;
-
-        choice(initializer_list<rule_base *> in_children) : children(in_children)
-        {
-        }
-
-        std::unique_ptr<token> match(istream &is) override
-        {
-
-            auto t = match_begin(is);
-
-            for (auto c : children)
-            {
-                auto tc = c->match(is);
-                if (tc)
-                {
-                    t->children.emplace_back(std::move(tc));
-                    match_passed(is, t.get());
-                    return t;
-                }
-            }
-
-            match_fail(is, t.get());
-            return token::null_token();
-        }
-
-        string to_string() override
-        {
-            string ret;
-            ret = "(";
-            for (auto c : children)
-            {
-                if (ret.length() > 1)
-                    ret = ret + "|";
-                ret = ret + c->to_string();
-            }
-            ret = ret + ")";
-            return ret;
-        }
-    };
-
-    struct sequence : public rule_base
-    {
-        vector<rule_base *> children;
-
-        sequence(initializer_list<rule_base *> in_children) : children(in_children)
-        {
-        }
-
-        std::unique_ptr<token> match(istream &is) override
-        {
-
-            auto t = match_begin(is);
-
-            for (auto c : children)
-            {
-                auto tc = c->match(is);
-                if (!tc)
-                {
-                    match_fail(is, t.get());
-                    return token::null_token();
-                }
-                t->children.emplace_back(std::move(tc));
-            }
-
-            match_passed(is, t.get());
-            return t;
-        }
-
-        string to_string() override
-        {
-            string ret;
-            ret = "(";
-            for (auto c : children)
-            {
-                if (ret.length() > 1)
-                    ret = ret + " ";
-                ret = ret + c->to_string();
-            }
-            ret = ret + ")";
-            return ret;
-        }
-    };
-
-    template <size_t ML, size_t MM>
-    struct repeat : public rule_base
-    {
-        rule_base *child;
-        size_t min = ML;
-        size_t max = MM;
-
-        repeat(rule_base *in_rule_base) : child(in_rule_base) {}
-
-        std::unique_ptr<token> match(istream &is) override
-        {
-            auto t = match_begin(is);
-            size_t count = 0;
-            while (true)
-            {
-                auto tc = child->match(is);
-                if (!tc)
-                {
-                    if (count >= min && count <= max)
-                    {
-                        match_passed(is, t.get());
-                        return t;
-                    }
-                    match_fail(is, t.get());
-                    return token::null_token();
-                }
-                else
-                {
-                    t->children.emplace_back(std::move(tc));
-                }
-                count++;
-            }
-            match_fail(is, t.get());
-            return token::null_token();
-        }
-
-        string to_string() override
-        {
-            string ret = child->to_string();
-
-            if (min == 0 && max == 1)
-                ret = ret + "?";
-            if (min == 0 && max > 1)
-                ret = ret + "*";
-            if (min == 1 && max > 1)
-                ret = ret + "+";
-
-            return ret;
-        }
-    };
-
-    using any = repeat<0, std::numeric_limits<size_t>::max()>;
-    using opt = repeat<0, 1>;
-    using more = repeat<1, std::numeric_limits<size_t>::max()>;
-}
-
-void test_out(bnf::token *root, istream &is)
+void test_out(bnf::token *root, std::istream &is)
 {
     root->for_each([&](bnf::token *t)
                 { 
             if (auto r = dynamic_cast<bnf::rule *>(t->rule))
             {
-                cout << r->name << " " << t->start << ", " << t->end;
+                std::cout << r->name << " " << t->start << ", " << t->end;
                 if (t->end != -1)
                 {
-                    streamsize len = t->end - t->start;
-                    string buf(len, '\0');
+                    std::streamsize len = t->end - t->start;
+                    std::string buf(len, '\0');
                     is.seekg(t->start);
                     is.read(&buf[0], len);
-                    cout << "(" << len << ")" << " '" << buf << "'";
+                    std::cout << "(" << len << ")" << " '" << buf << "'";
                 }
-                cout << endl;
+                std::cout << std::endl;
             } });
 }
 
 struct expr_eval
 {
-    stack<string> operator_stack;
-    queue<string> output_queue;
+    std::stack<std::string> operator_stack;
+    std::queue<std::string> output_queue;
 
-    void flush_operator_stack(vector<string> exit_token)
-    {
-        while (!operator_stack.empty() && find(exit_token.begin(), exit_token.end(), operator_stack.top()) != exit_token.end())
-        {
-            output_queue.push(operator_stack.top());
-            operator_stack.pop();
-        }
-    }
-
-    void parse_token(bnf::token *root, istream &is)
+    void parse_token(bnf::token *root, std::istream &is)
     {
         root->for_each([&](bnf::token *t)
                     { 
                 if (auto r = dynamic_cast<bnf::rule *>(t->rule))
                 {
-                    streamsize len = t->end - t->start;
-                    string buf(len, '\0');
+                    std::streamsize len = t->end - t->start;
+                    std::string buf(len, '\0');
                     is.seekg(t->start);
                     is.read(&buf[0], len);  
 
@@ -420,7 +47,7 @@ struct expr_eval
                     }
                     else if(r->name == "add" || r->name == "sub")
                     {
-                        vector<string> exit_token({ "*", "/" });
+                        std::vector<std::string> exit_token({ "*", "/" });
                         while (!operator_stack.empty() && operator_stack.top() != "(" && find(exit_token.begin(), exit_token.end(), operator_stack.top()) != exit_token.end())
                         {
                             output_queue.push(operator_stack.top());
@@ -463,24 +90,24 @@ struct expr_eval
             operator_stack.pop();
         }
     }
-    int eval(bnf::token *root, istream &is)
+    int eval(bnf::token *root, std::istream &is)
     {
         parse_token(root, is);
 
         while (!output_queue.empty())
         {
             auto x = output_queue.front();
-            cout << x << " ";
+            std::cout << x << " ";
             output_queue.pop();
         }
-        cout << endl;
+        std::cout << std::endl;
         return 0;
     }
 };
 
 void test_complex()
 {
-    cout << "TEST_COMPLEX" << endl;
+    std::cout << "TEST_COMPLEX" << std::endl;
 
     bnf::char_range i_digit('0', '9');
     bnf::more i_integer(&i_digit);
@@ -524,7 +151,7 @@ void test_complex()
     bnf::rule r_expr("expr", &i_expr_4);
     rr_expr = r_expr;
 
-    stringstream ss;
+    std::stringstream ss;
     ss << "1+2+3*4";
 
     // cout << r_expr.to_string() << endl;
@@ -533,17 +160,17 @@ void test_complex()
 
     ss.clear();
 
-    cout << "Match token: ";
+    std::cout << "Match token: ";
     if (t)
     {
-        cout << "Passed" << endl;
+        std::cout << "Passed" << std::endl;
         expr_eval ev;
         ev.eval(t.get(), ss);
         //test_out(t.get(), ss);
     }
     else
     {
-        cout << "NOT passed" << endl;
+        std::cout << "NOT passed" << std::endl;
     }
 }
 
