@@ -7,6 +7,7 @@
 #include <vector>
 #include <limits>
 #include <stack>
+#include <queue>
 #include <functional>
 
 using namespace std;
@@ -365,31 +366,117 @@ namespace bnf
     using more = repeat<1, std::numeric_limits<size_t>::max()>;
 }
 
-void test_out(bnf::token *t, istream &is)
+void test_out(bnf::token *root, istream &is)
 {
-    if (auto r = dynamic_cast<bnf::rule *>(t->rule))
+    root->for_each([&](bnf::token *t)
+                { 
+            if (auto r = dynamic_cast<bnf::rule *>(t->rule))
+            {
+                cout << r->name << " " << t->start << ", " << t->end;
+                if (t->end != -1)
+                {
+                    streamsize len = t->end - t->start;
+                    string buf(len, '\0');
+                    is.seekg(t->start);
+                    is.read(&buf[0], len);
+                    cout << "(" << len << ")" << " '" << buf << "'";
+                }
+                cout << endl;
+            } });
+}
+
+struct expr_eval
+{
+    stack<string> operator_stack;
+    queue<string> output_queue;
+
+    void flush_operator_stack(vector<string> exit_token)
     {
-        cout << r->name << " " << t->start << ", " << t->end;
-        if (t->end != -1)
+        while (!operator_stack.empty() && find(exit_token.begin(), exit_token.end(), operator_stack.top()) != exit_token.end())
         {
-            streamsize len = t->end - t->start;
-            string buf(len, '\0');
-            is.seekg(t->start);
-            is.read(&buf[0], len);
-            cout << "(" << len << ")" << " '" << buf << "'";
+            output_queue.push(operator_stack.top());
+            operator_stack.pop();
+        }
+    }
+
+    void parse_token(bnf::token *root, istream &is)
+    {
+        root->for_each([&](bnf::token *t)
+                    { 
+                if (auto r = dynamic_cast<bnf::rule *>(t->rule))
+                {
+                    streamsize len = t->end - t->start;
+                    string buf(len, '\0');
+                    is.seekg(t->start);
+                    is.read(&buf[0], len);  
+
+                    if (r->name == "integer")
+                    {
+                        output_queue.push(buf);
+                    } 
+                    else if(r->name == "lparen")
+                    {
+                        operator_stack.push(buf);
+                    }
+                    else if(r->name == "add" || r->name == "sub")
+                    {
+                        vector<string> exit_token({ "*", "/" });
+                        while (!operator_stack.empty() && operator_stack.top() != "(" && find(exit_token.begin(), exit_token.end(), operator_stack.top()) != exit_token.end())
+                        {
+                            output_queue.push(operator_stack.top());
+                            operator_stack.pop();
+                        }
+                        operator_stack.push(buf);
+                    }
+                    else if(r->name == "mul" || r->name == "div")
+                    {
+                        if (!operator_stack.empty())
+                        {
+                            if (operator_stack.top() == "*" || operator_stack.top() == "/")
+                            {
+                                output_queue.push(operator_stack.top());
+                                operator_stack.pop();
+                            }
+                        }
+                        operator_stack.push(buf);
+                    }
+                    else if(r->name == "rparen")
+                    {
+                        while (!operator_stack.empty() && operator_stack.top() != "(")
+                        {
+                            output_queue.push(operator_stack.top());
+                            operator_stack.pop();
+                        }
+                        if (!operator_stack.empty() && operator_stack.top() == "(")
+                        {
+                            operator_stack.pop();
+                        }
+                        else
+                        {
+                            // TODO: Error parentheses mismatch 
+                        }
+                    }
+                } });
+        while (!operator_stack.empty())
+        {
+            output_queue.push(operator_stack.top());
+            operator_stack.pop();
+        }
+    }
+    int eval(bnf::token *root, istream &is)
+    {
+        parse_token(root, is);
+
+        while (!output_queue.empty())
+        {
+            auto x = output_queue.front();
+            cout << x << " ";
+            output_queue.pop();
         }
         cout << endl;
+        return 0;
     }
-
-    for (auto &tc : t->children)
-    {
-        test_out(tc.get(), is);
-    }
-}
-
-void shunting_yard_algorithm(bnf::token *t)
-{
-}
+};
 
 void test_complex()
 {
@@ -438,7 +525,7 @@ void test_complex()
     rr_expr = r_expr;
 
     stringstream ss;
-    ss << "(1+2)*3";
+    ss << "1+2+3*4";
 
     // cout << r_expr.to_string() << endl;
 
@@ -450,22 +537,9 @@ void test_complex()
     if (t)
     {
         cout << "Passed" << endl;
-        t->for_each([&](bnf::token *t)
-            { 
-                if (auto r = dynamic_cast<bnf::rule *>(t->rule))
-                {
-                    cout << r->name << " " << t->start << ", " << t->end;
-                    if (t->end != -1)
-                    {
-                        streamsize len = t->end - t->start;
-                        string buf(len, '\0');
-                        ss.seekg(t->start);
-                        ss.read(&buf[0], len);        
-                        cout << "(" << len << ")" << " '" << buf << "'"; 
-                    }
-                    cout << endl;
-                } 
-            });
+        expr_eval ev;
+        ev.eval(t.get(), ss);
+        //test_out(t.get(), ss);
     }
     else
     {
