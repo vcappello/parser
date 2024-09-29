@@ -1,6 +1,5 @@
 #include <iostream>
 #include <string>
-#include <sstream>
 #include <vector>
 #include <memory>
 #include <optional>
@@ -51,17 +50,12 @@ namespace bnf
 
         virtual void match_fail(std::istream &is, token *t)
         {
-            // cout << rule->to_string() << " FAIL" << endl;
-
             is.seekg(t->start);
         }
 
         virtual void match_passed(std::istream &is, token *t)
         {
-            // cout << rule->to_string() << " Ok" << endl;
-
             t->end = is.tellg();
-            // st.parent->children.emplace_back(t);
         }
     };
 

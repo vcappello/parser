@@ -1,5 +1,7 @@
 #include <stack>
 #include <queue>
+#include <sstream>
+
 #include "bnf.h"
 
 void test_out(bnf::token *root, std::istream &is)
