@@ -36,6 +36,9 @@ namespace bnf
 
     struct rule_base
     {
+        rule_base() = default;
+        virtual ~rule_base() = default;
+
         virtual std::unique_ptr<token> match(std::istream &is) = 0;
         virtual std::string to_string() = 0;
 
@@ -61,15 +64,24 @@ namespace bnf
 
     struct terminal_rule : public rule_base
     {
+        terminal_rule() = default;
+        virtual ~terminal_rule() = default;        
     };
 
     struct rule : public rule_base
     {
         std::string name;
-        rule_base *child;
+        std::unique_ptr<rule_base> child;
 
-        rule(const std::string &in_name, rule_base *in_child) : name(in_name), child(in_child) {}
-        rule(const std::string &in_name) : name(in_name), child(nullptr) {}
+        rule(const std::string &in_name, std::unique_ptr<rule_base> in_child) : 
+            name(in_name), 
+            child(std::move(in_child)) {}
+
+        rule(const std::string &in_name) : 
+            name(in_name), 
+            child(nullptr) {}
+
+        virtual ~rule() = default;
 
         std::unique_ptr<token> match(std::istream &is) override
         {
@@ -93,10 +105,12 @@ namespace bnf
     struct rule_ref : public rule_base
     {
         std::string name;
-        rule_base *child;
+        rule_base* child;
 
         rule_ref() : child(nullptr) {}
-        rule_ref(const rule &rhs) : name(rhs.name), child(rhs.child) {}
+        rule_ref(rule* rhs) : name(rhs->name), child(rhs) {}
+
+        virtual ~rule_ref() = default;
 
         std::unique_ptr<token> match(std::istream &is) override
         {
@@ -116,10 +130,10 @@ namespace bnf
             return name;
         }
 
-        rule_ref &operator=(const rule &rhs)
+        rule_ref &operator=(rule* rhs)
         {
-            this->name = rhs.name;
-            this->child = rhs.child;
+            this->name = rhs->name;
+            this->child = rhs->child.get();
             return *this;
         }
     };
@@ -129,6 +143,7 @@ namespace bnf
         std::string text;
 
         literal(const std::string &in_text) : text(in_text) {}
+        virtual ~literal() = default;
 
         std::unique_ptr<token> match(std::istream &is) override
         {
@@ -161,6 +176,7 @@ namespace bnf
         char high;
 
         char_range(const char in_low, const char in_high) : low(in_low), high(in_high) {}
+        virtual ~char_range() = default;
 
         std::unique_ptr<token> match(std::istream &is) override
         {
@@ -190,6 +206,7 @@ namespace bnf
         std::string cset;
 
         char_set(const std::string &in_cset) : cset(in_cset) {}
+        virtual ~char_set() = default;
 
         std::unique_ptr<token> match(std::istream &is) override
         {
@@ -216,9 +233,10 @@ namespace bnf
 
     struct choice : public rule_base
     {
-        std::vector<rule_base *> children;
+        std::vector<std::unique_ptr<rule_base>> children;
+        virtual ~choice() = default;
 
-        choice(std::initializer_list<rule_base *> in_children) : children(in_children)
+        choice(std::vector<std::unique_ptr<rule_base>> in_children) : children(std::move(in_children))
         {
         }
 
@@ -227,7 +245,7 @@ namespace bnf
 
             auto t = match_begin(is);
 
-            for (auto c : children)
+            for (auto& c : children)
             {
                 auto tc = c->match(is);
                 if (tc)
@@ -246,7 +264,7 @@ namespace bnf
         {
             std::string ret;
             ret = "(";
-            for (auto c : children)
+            for (auto& c : children)
             {
                 if (ret.length() > 1)
                     ret = ret + "|";
@@ -259,18 +277,19 @@ namespace bnf
 
     struct sequence : public rule_base
     {
-        std::vector<rule_base *> children;
+        std::vector<std::unique_ptr<rule_base>> children;
 
-        sequence(std::initializer_list<rule_base *> in_children) : children(in_children)
+        sequence(std::vector<std::unique_ptr<rule_base>> in_children) : children(std::move(in_children))
         {
         }
+        virtual ~sequence() = default;
 
         std::unique_ptr<token> match(std::istream &is) override
         {
 
             auto t = match_begin(is);
 
-            for (auto c : children)
+            for (auto& c : children)
             {
                 auto tc = c->match(is);
                 if (!tc)
@@ -289,7 +308,7 @@ namespace bnf
         {
             std::string ret;
             ret = "(";
-            for (auto c : children)
+            for (auto& c : children)
             {
                 if (ret.length() > 1)
                     ret = ret + " ";
@@ -303,11 +322,12 @@ namespace bnf
     template <size_t ML, size_t MM>
     struct repeat : public rule_base
     {
-        rule_base *child;
+        std::unique_ptr<rule_base> child;
         size_t min = ML;
         size_t max = MM;
 
-        repeat(rule_base *in_rule_base) : child(in_rule_base) {}
+        repeat(std::unique_ptr<rule_base> in_rule_base) : child(std::move(in_rule_base)) {}
+        virtual ~repeat() = default;
 
         std::unique_ptr<token> match(std::istream &is) override
         {
@@ -354,4 +374,12 @@ namespace bnf
     using any = repeat<0, std::numeric_limits<size_t>::max()>;
     using opt = repeat<0, 1>;
     using more = repeat<1, std::numeric_limits<size_t>::max()>;
+
+    template<typename T, typename... Args>
+    auto make(Args&&... args) {
+        std::vector<std::unique_ptr<rule_base>> vec;
+        vec.reserve(sizeof...(Args)); 
+        (vec.emplace_back(std::forward<Args>(args)), ...);
+        return std::make_unique<T>(std::move(vec));
+    }
 }
