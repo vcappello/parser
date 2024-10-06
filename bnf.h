@@ -68,6 +68,8 @@ namespace bnf
         virtual ~terminal_rule() = default;        
     };
 
+    struct rule_ref; // Forward declaration
+
     struct rule : public rule_base
     {
         std::string name;
@@ -82,6 +84,8 @@ namespace bnf
             child(nullptr) {}
 
         virtual ~rule() = default;
+
+        std::unique_ptr<rule_ref> to_ref(); // declaration
 
         std::unique_ptr<token> match(std::istream &is) override
         {
@@ -137,6 +141,11 @@ namespace bnf
             return *this;
         }
     };
+
+    std::unique_ptr<rule_ref> rule::to_ref() // Implementation
+    {
+        return std::make_unique<rule_ref>(this);
+    }
 
     struct literal : public terminal_rule
     {
