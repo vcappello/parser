@@ -319,12 +319,29 @@ namespace bnf
         }
     };
 
-    template <size_t ML, size_t MM>
+    struct range_any
+    {
+        static constexpr size_t from = 0;
+        static constexpr size_t to = std::numeric_limits<size_t>::max();
+    };
+
+    struct range_opt
+    {
+        static constexpr size_t from = 0;
+        static constexpr size_t to = 1;
+    };
+
+    struct range_more
+    {
+        static constexpr size_t from = 1;
+        static constexpr size_t to = std::numeric_limits<size_t>::max();
+    };
+
+    template <typename T>
     struct repeat : public rule_base
     {
         std::unique_ptr<rule_base> child;
-        size_t min = ML;
-        size_t max = MM;
+        T range;
 
         repeat(std::unique_ptr<rule_base> in_rule_base) : child(std::move(in_rule_base)) {}
         virtual ~repeat() = default;
@@ -338,7 +355,7 @@ namespace bnf
                 auto tc = child->match(is);
                 if (!tc)
                 {
-                    if (count >= min && count <= max)
+                    if (count >= T::from && count <= T::to)
                     {
                         match_passed(is, t.get());
                         return t;
@@ -360,23 +377,34 @@ namespace bnf
         {
             std::string ret = child->to_string();
 
-            if (min == 0 && max == 1)
+            if (T::from == 0 && T::to == 1)
                 ret = ret + "?";
-            if (min == 0 && max > 1)
+            if (T::from == 0 && T::to > 1)
                 ret = ret + "*";
-            if (min == 1 && max > 1)
+            if (T::from == 1 && T::to > 1)
                 ret = ret + "+";
 
             return ret;
         }
     };
 
-    using any = repeat<0, std::numeric_limits<size_t>::max()>;
-    using opt = repeat<0, 1>;
-    using more = repeat<1, std::numeric_limits<size_t>::max()>;
+    using any = repeat<range_any>;
+    using opt = repeat<range_opt>;
+    using more = repeat<range_more>;
+
+    template <typename T>
+    struct is_rule_container : std::false_type {};
+
+    template <> struct is_rule_container<choice> : std::true_type {};
+    template <> struct is_rule_container<sequence> : std::true_type {};
 
     template<typename T, typename... Args>
-    auto make(Args&&... args) {
+    std::enable_if_t<!is_rule_container<T>::value, std::unique_ptr<T>> make(Args&&... args) {
+        return std::make_unique<T>(std::forward<Args>(args)...);
+    }
+
+    template<typename T, typename... Args>
+    std::enable_if_t<is_rule_container<T>::value, std::unique_ptr<T>> make(Args&&... args) {
         std::vector<std::unique_ptr<rule_base>> vec;
         vec.reserve(sizeof...(Args)); 
         (vec.emplace_back(std::forward<Args>(args)), ...);

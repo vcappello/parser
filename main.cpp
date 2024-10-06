@@ -111,30 +111,30 @@ void test_complex()
 {
     std::cout << "TEST_COMPLEX" << std::endl;
 
-    auto r_integer = std::make_unique<bnf::rule>("integer", std::make_unique<bnf::more>(std::make_unique<bnf::char_range>('0', '9')));
-    auto r_lparen = std::make_unique<bnf::rule>("lparen", std::make_unique<bnf::literal>("("));
-    auto r_rparen = std::make_unique<bnf::rule>("rparen", std::make_unique<bnf::literal>(")"));
-    auto r_mul = std::make_unique<bnf::rule>("mul", std::make_unique<bnf::literal>("*"));
-    auto r_div = std::make_unique<bnf::rule>("div", std::make_unique<bnf::literal>("/"));
-    auto r_add = std::make_unique<bnf::rule>("add", std::make_unique<bnf::literal>("+"));
-    auto r_sub = std::make_unique<bnf::rule>("sub", std::make_unique<bnf::literal>("-"));
+    auto r_integer = bnf::make<bnf::rule>("integer", bnf::make<bnf::more>(bnf::make<bnf::char_range>('0', '9')));
+    auto r_lparen = bnf::make<bnf::rule>("lparen", bnf::make<bnf::literal>("("));
+    auto r_rparen = bnf::make<bnf::rule>("rparen", bnf::make<bnf::literal>(")"));
+    auto r_mul = bnf::make<bnf::rule>("mul", bnf::make<bnf::literal>("*"));
+    auto r_div = bnf::make<bnf::rule>("div", bnf::make<bnf::literal>("/"));
+    auto r_add = bnf::make<bnf::rule>("add", bnf::make<bnf::literal>("+"));
+    auto r_sub = bnf::make<bnf::rule>("sub", bnf::make<bnf::literal>("-"));
 
-    auto r_expr = std::make_unique<bnf::rule>("rule"); // Forward declaration
+    auto r_expr = bnf::make<bnf::rule>("rule"); // Forward declaration
 
-    auto r_factor= std::make_unique<bnf::rule>("factor", bnf::make<bnf::choice>(std::make_unique<bnf::rule_ref>(r_integer.get()),
-                                                                                bnf::make<bnf::sequence>(std::make_unique<bnf::rule_ref>(r_lparen.get()), 
-                                                                                                         std::make_unique<bnf::rule_ref>(r_expr.get()),
-                                                                                                         std::make_unique<bnf::rule_ref>(r_rparen.get()))));
+    auto r_factor= bnf::make<bnf::rule>("factor", bnf::make<bnf::choice>(bnf::make<bnf::rule_ref>(r_integer.get()),
+                                                                         bnf::make<bnf::sequence>(bnf::make<bnf::rule_ref>(r_lparen.get()), 
+                                                                                                  bnf::make<bnf::rule_ref>(r_expr.get()),
+                                                                                                  bnf::make<bnf::rule_ref>(r_rparen.get()))));
 
-    auto r_term = std::make_unique<bnf::rule>("term", bnf::make<bnf::sequence>(std::make_unique<bnf::rule_ref>(r_factor.get()),
-                                                                               std::make_unique<bnf::any>(bnf::make<bnf::sequence>(bnf::make<bnf::choice>(std::make_unique<bnf::rule_ref>(r_mul.get()),
-                                                                                                                                                          std::make_unique<bnf::rule_ref>(r_div.get())),
-                                                                                                                                   std::make_unique<bnf::rule_ref>(r_factor.get())))));
+    auto r_term = bnf::make<bnf::rule>("term", bnf::make<bnf::sequence>(bnf::make<bnf::rule_ref>(r_factor.get()),
+                                                                        bnf::make<bnf::any>(bnf::make<bnf::sequence>(bnf::make<bnf::choice>(bnf::make<bnf::rule_ref>(r_mul.get()),
+                                                                                                                                            bnf::make<bnf::rule_ref>(r_div.get())),
+                                                                                                                     bnf::make<bnf::rule_ref>(r_factor.get())))));
 
-    r_expr->child = bnf::make<bnf::sequence>(std::make_unique<bnf::rule_ref>(r_term.get()),
-                                             std::make_unique<bnf::any>(bnf::make<bnf::sequence>(bnf::make<bnf::choice>(std::make_unique<bnf::rule_ref>(r_add.get()),
-                                                                                                                        std::make_unique<bnf::rule_ref>(r_sub.get())),
-                                                                        std::make_unique<bnf::rule_ref>(r_term.get()))));
+    r_expr->child = bnf::make<bnf::sequence>(bnf::make<bnf::rule_ref>(r_term.get()),
+                                             bnf::make<bnf::any>(bnf::make<bnf::sequence>(bnf::make<bnf::choice>(bnf::make<bnf::rule_ref>(r_add.get()),
+                                                                                                                 bnf::make<bnf::rule_ref>(r_sub.get())),
+                                                                                          bnf::make<bnf::rule_ref>(r_term.get()))));
 
     std::cout << r_factor->to_string() << std::endl;
     std::cout << r_term->to_string() << std::endl;
