@@ -1,20 +1,21 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <stack>
 #include <memory>
 #include <optional>
-#include <vector>
 #include <limits>
 #include <functional>
 
 namespace bnf
 {
-    struct rule_base;
+    struct rule_base; // Forward declaration
+    struct rule_ref;  // Forward declaration
 
     struct token
     {
-        std::streampos start;
-        std::streampos end;
+        std::streampos start_pos;
+        std::streampos end_pos;
         rule_base *rule;
         std::vector<std::unique_ptr<token>> children;
 
@@ -23,15 +24,87 @@ namespace bnf
             return std::unique_ptr<token>();
         }
 
-        void for_each(std::function<void(token *)> fn)
+        struct iterator
         {
-            fn(this);
+            using iterator_category = std::forward_iterator_tag;
+            using difference_type = std::ptrdiff_t;
+            using value_type = token;
+            using pointer = token *;
+            using reference = token &;
 
-            for (auto &c : children)
+            struct stack_data
             {
-                c->for_each(fn);
+                pointer node_ptr;
+                size_t index;
+            };
+
+            iterator(pointer ptr) : m_ptr(ptr), child_index(0) {}
+
+            reference operator*() const { return *m_ptr; }
+            pointer operator->() { return m_ptr; }
+            iterator &operator++()
+            {
+                if (m_ptr == nullptr)
+                {
+                    return *this;
+                }
+
+                if (!m_ptr->children.empty())
+                {
+                    // Store current status in the stack
+                    node_stack.push({m_ptr, child_index});
+                    // Go to first child
+                    child_index = 0;
+                    m_ptr = m_ptr->children[child_index].get();
+                }
+                else
+                {
+                    // Move up in the stack and go to next child
+                    do
+                    {
+                        // Restore state from stack
+                        auto data = node_stack.top();
+                        node_stack.pop();
+                        child_index = data.index;
+                        m_ptr = data.node_ptr;
+                    } while (!node_stack.empty() && child_index == (m_ptr->children.size() - 1));
+
+                    if (child_index < (m_ptr->children.size() - 1))
+                    {
+                        // Move next and store status
+                        child_index++;
+                        node_stack.push({m_ptr, child_index});
+                        // Next node
+                        m_ptr = m_ptr->children[child_index].get();
+                        child_index = 0;
+                    }
+                    else
+                    {
+                        m_ptr = nullptr;
+                    }
+                }
+                return *this;
             }
-        }
+
+            iterator operator++(int)
+            {
+                iterator tmp = *this;
+                ++(*this);
+                return tmp;
+            }
+
+            friend bool operator==(const iterator &a, const iterator &b) { return a.m_ptr == b.m_ptr; };
+
+            friend bool operator!=(const iterator &a, const iterator &b) { return a.m_ptr != b.m_ptr; };
+
+        private:
+            pointer m_ptr;
+            size_t child_index;
+            std::stack<stack_data> node_stack;
+        };
+
+        iterator begin() { return iterator(this); }
+        iterator end() { return iterator(nullptr); }
     };
 
     struct rule_base
@@ -45,7 +118,7 @@ namespace bnf
         virtual std::unique_ptr<token> match_begin(std::istream &is)
         {
             auto t = std::make_unique<token>();
-            t->start = is.tellg();
+            t->start_pos = is.tellg();
             t->rule = this;
 
             return t;
@@ -53,39 +126,35 @@ namespace bnf
 
         virtual void match_fail(std::istream &is, token *t)
         {
-            is.seekg(t->start);
+            is.seekg(t->start_pos);
         }
 
         virtual void match_passed(std::istream &is, token *t)
         {
-            t->end = is.tellg();
+            t->end_pos = is.tellg();
         }
+
+        std::unique_ptr<rule_ref> to_ref(); // declaration
     };
 
     struct terminal_rule : public rule_base
     {
         terminal_rule() = default;
-        virtual ~terminal_rule() = default;        
+        virtual ~terminal_rule() = default;
     };
-
-    struct rule_ref; // Forward declaration
 
     struct rule : public rule_base
     {
         std::string name;
         std::unique_ptr<rule_base> child;
 
-        rule(const std::string &in_name, std::unique_ptr<rule_base> in_child) : 
-            name(in_name), 
-            child(std::move(in_child)) {}
+        rule(const std::string &in_name, std::unique_ptr<rule_base> in_child) : name(in_name),
+                                                                                child(std::move(in_child)) {}
 
-        rule(const std::string &in_name) : 
-            name(in_name), 
-            child(nullptr) {}
+        rule(const std::string &in_name) : name(in_name),
+                                           child(nullptr) {}
 
         virtual ~rule() = default;
-
-        std::unique_ptr<rule_ref> to_ref(); // declaration
 
         std::unique_ptr<token> match(std::istream &is) override
         {
@@ -108,11 +177,10 @@ namespace bnf
 
     struct rule_ref : public rule_base
     {
-        std::string name;
-        rule_base* child;
+        rule_base *child;
 
         rule_ref() : child(nullptr) {}
-        rule_ref(rule* rhs) : name(rhs->name), child(rhs) {}
+        rule_ref(rule_base *rhs) : child(rhs) {}
 
         virtual ~rule_ref() = default;
 
@@ -131,18 +199,21 @@ namespace bnf
 
         std::string to_string() override
         {
-            return name;
+            if (auto r = dynamic_cast<rule *>(child))
+            {
+                return r->name;
+            }
+            return child->to_string();
         }
 
-        rule_ref &operator=(rule* rhs)
+        rule_ref &operator=(rule_base *rhs)
         {
-            this->name = rhs->name;
-            this->child = rhs->child.get();
+            child = rhs;
             return *this;
         }
     };
 
-    std::unique_ptr<rule_ref> rule::to_ref() // Implementation
+    std::unique_ptr<rule_ref> rule_base::to_ref() // Implementation
     {
         return std::make_unique<rule_ref>(this);
     }
@@ -254,7 +325,7 @@ namespace bnf
 
             auto t = match_begin(is);
 
-            for (auto& c : children)
+            for (auto &c : children)
             {
                 auto tc = c->match(is);
                 if (tc)
@@ -273,7 +344,7 @@ namespace bnf
         {
             std::string ret;
             ret = "(";
-            for (auto& c : children)
+            for (auto &c : children)
             {
                 if (ret.length() > 1)
                     ret = ret + "|";
@@ -298,7 +369,7 @@ namespace bnf
 
             auto t = match_begin(is);
 
-            for (auto& c : children)
+            for (auto &c : children)
             {
                 auto tc = c->match(is);
                 if (!tc)
@@ -317,7 +388,7 @@ namespace bnf
         {
             std::string ret;
             ret = "(";
-            for (auto& c : children)
+            for (auto &c : children)
             {
                 if (ret.length() > 1)
                     ret = ret + " ";
@@ -402,21 +473,32 @@ namespace bnf
     using more = repeat<range_more>;
 
     template <typename T>
-    struct is_rule_container : std::false_type {};
+    struct is_rule_container : std::false_type
+    {
+    };
 
-    template <> struct is_rule_container<choice> : std::true_type {};
-    template <> struct is_rule_container<sequence> : std::true_type {};
+    template <>
+    struct is_rule_container<choice> : std::true_type
+    {
+    };
+    template <>
+    struct is_rule_container<sequence> : std::true_type
+    {
+    };
 
-    template<typename T, typename... Args>
-    std::enable_if_t<!is_rule_container<T>::value, std::unique_ptr<T>> make(Args&&... args) {
+    template <typename T, typename... Args>
+    std::enable_if_t<!is_rule_container<T>::value, std::unique_ptr<T>> make(Args &&...args)
+    {
         return std::make_unique<T>(std::forward<Args>(args)...);
     }
 
-    template<typename T, typename... Args>
-    std::enable_if_t<is_rule_container<T>::value, std::unique_ptr<T>> make(Args&&... args) {
+    template <typename T, typename... Args>
+    std::enable_if_t<is_rule_container<T>::value, std::unique_ptr<T>> make(Args &&...args)
+    {
         std::vector<std::unique_ptr<rule_base>> vec;
-        vec.reserve(sizeof...(Args)); 
+        vec.reserve(sizeof...(Args));
         (vec.emplace_back(std::forward<Args>(args)), ...);
         return std::make_unique<T>(std::move(vec));
     }
+
 }

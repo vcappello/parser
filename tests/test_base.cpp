@@ -13,8 +13,8 @@ TEST(Rule, Literal)
   auto token = rule_foo.match(ss);
 
   ASSERT_NE(token, nullptr);
-  EXPECT_EQ(token->start, 0);
-  EXPECT_EQ(token->end, 3);
+  EXPECT_EQ(token->start_pos, 0);
+  EXPECT_EQ(token->end_pos, 3);
 
   ss.seekg(ss.beg);
   ss.clear();
@@ -22,8 +22,8 @@ TEST(Rule, Literal)
   auto second_token = rule_foo.match(ss);
 
   ASSERT_NE(second_token, nullptr);
-  EXPECT_EQ(second_token->start, 0);
-  EXPECT_EQ(second_token->end, 3);
+  EXPECT_EQ(second_token->start_pos, 0);
+  EXPECT_EQ(second_token->end_pos, 3);
 
   std::stringstream ss_fail;
   ss_fail << "Bar";
