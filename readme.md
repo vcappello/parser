@@ -1,6 +1,6 @@
 # Parser
 
-Parser using EBNF grammar.
+Parser using EBNF-style grammar.
 
 ## BNF
 

@@ -143,15 +143,31 @@ namespace bnf
         virtual ~terminal_rule() = default;
     };
 
-    struct rule : public rule_base
+    struct named_rule : public rule_base
     {
         std::string name;
+
+        named_rule(const std::string &in_name) : name(in_name) {}
+        virtual ~named_rule() = default;
+    };
+
+    struct rule_move_default
+    {
+        static std::unique_ptr<rule_base> move(std::unique_ptr<rule_base> in_child)
+        {
+            return std::move(in_child);
+        }
+    };
+
+    template<typename TMovePolicy = rule_move_default>
+    struct rule : public named_rule
+    {
         std::unique_ptr<rule_base> child;
 
-        rule(const std::string &in_name, std::unique_ptr<rule_base> in_child) : name(in_name),
-                                                                                child(std::move(in_child)) {}
+        rule(const std::string &in_name, std::unique_ptr<rule_base> in_child) : named_rule(in_name),
+                                                                                child(std::move(TMovePolicy::move(std::move(in_child)))) {}
 
-        rule(const std::string &in_name) : name(in_name),
+        rule(const std::string &in_name) : named_rule(in_name),
                                            child(nullptr) {}
 
         virtual ~rule() = default;
@@ -199,7 +215,7 @@ namespace bnf
 
         std::string to_string() override
         {
-            if (auto r = dynamic_cast<rule *>(child))
+            if (auto r = dynamic_cast<named_rule *>(child))
             {
                 return r->name;
             }
@@ -501,4 +517,20 @@ namespace bnf
         return std::make_unique<T>(std::move(vec));
     }
 
+    static std::unique_ptr<any> whitespace = make<any>(make<char_set>(" \t"));
+
+    struct skip_whitespace
+    {
+        static std::unique_ptr<rule_base> move(std::unique_ptr<rule_base> in_child)
+        {        
+            auto wsr = make<sequence>(whitespace->to_ref(),
+                                      std::move(in_child),
+                                      whitespace->to_ref());
+
+            return std::move(wsr);
+        }
+    };
+
+    using rulea = rule<>;
+    using rulew = rule<skip_whitespace>;
 }
